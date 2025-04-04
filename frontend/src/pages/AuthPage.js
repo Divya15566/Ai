@@ -1,8 +1,8 @@
 import { motion } from 'framer-motion';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faGoogle, faGithub } from '@fortawesome/free-brands-svg-icons';
+import { faGoogle } from '@fortawesome/free-brands-svg-icons';
 import AuthForm from '../components/AuthForm';
-import Navbar from '../components/navbar';
+
 import logo from '../assets/logo.png';
 import { socialAuth, googleProvider } from '../firebase';
 import toast from 'react-hot-toast';
@@ -20,7 +20,7 @@ export default function AuthPage() {
   return (
     
     <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600">
-      <Navbar />
+      
       
       
       <motion.div 

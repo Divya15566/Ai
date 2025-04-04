@@ -1,4 +1,4 @@
-import { FaUpload, FaSearch, FaChartLine } from 'react-icons/fa';
+import { FaUpload, FaSearch, FaChartLine, FaCheckCircle } from 'react-icons/fa';
 
 export default function Sidebar({ activeTab, setActiveTab }) {
   return (
@@ -13,6 +13,15 @@ export default function Sidebar({ activeTab, setActiveTab }) {
             >
               <FaUpload className="mr-3" />
               PDF Processor
+            </button>
+          </li>
+          <li>
+            <button
+              onClick={() => setActiveTab('evaluator')}
+              className={`flex items-center w-full p-3 rounded-lg ${activeTab === 'evaluator' ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
+            >
+              <FaCheckCircle className="mr-3" />
+              Answer Evaluator
             </button>
           </li>
           <li>
