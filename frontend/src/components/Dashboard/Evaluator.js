@@ -1,59 +1,100 @@
-import { useState, useEffect } from 'react';
+import { forwardRef, useState, useEffect, useRef, useImperativeHandle } from 'react';
 import { FaCheck, FaSpinner, FaExclamationTriangle, FaVolumeUp, FaStop } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 
-export default function Evaluator({ generatedQuestions, onEvaluationAdded, pdfFile }) {
+const Evaluator = forwardRef(({ 
+  generatedQuestions, 
+  onEvaluationAdded, 
+  pdfFile 
+}, ref) => {
   const [answers, setAnswers] = useState({});
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evaluationResults, setEvaluationResults] = useState([]);
   const [validationErrors, setValidationErrors] = useState({});
   const [isReading, setIsReading] = useState(false);
   const [currentReadIndex, setCurrentReadIndex] = useState(null);
+  const speechRef = useRef(null);
+  const answerInputRefs = useRef([]);
+
+  // Expose functions to parent via ref
+  useImperativeHandle(ref, () => ({
+    handleVoiceAnswer: (command) => {
+      if (command.isMCQ) {
+        handleMCQAnswer(command.questionIndex, command.answer);
+      } else {
+        handleSubjectiveAnswer(command.questionIndex, command.answer);
+      }
+    },
+    handleVoiceEvaluate: () => {
+      evaluateAnswers();
+    },
+    handleVoiceReadQuestion: (questionIndex) => {
+      if (questionList[questionIndex]) {
+        readAloud(questionList[questionIndex], questionIndex);
+      }
+    }
+  }));
 
   useEffect(() => {
+    // Initialize refs array
+    answerInputRefs.current = answerInputRefs.current.slice(0, questionList.length);
+    
     return () => {
-      window.speechSynthesis.cancel();
+      if (speechRef.current) {
+        window.speechSynthesis.cancel();
+      }
     };
-  }, []);
+  }, [generatedQuestions]);
 
-  // Helper function for semantic similarity
-  const calculateSemanticSimilarity = (text1, text2) => {
-    const getPhrases = (text) => {
-      return text.match(/\b[\w\s]{5,}\b/g) || [];
-    };
+  const handleMCQAnswer = (questionIndex, answer) => {
+    const processedAnswer = answer.toUpperCase();
     
-    const phrases1 = getPhrases(text1);
-    const phrases2 = getPhrases(text2);
+    setAnswers(prev => ({
+      ...prev,
+      [questionIndex]: processedAnswer
+    }));
     
-    if (phrases1.length === 0 || phrases2.length === 0) return 0;
-    
-    const matchingPhrases = phrases1.filter(p1 => 
-      phrases2.some(p2 => 
-        p1.includes(p2) || p2.includes(p1))
-    ).length;
-    
-    return matchingPhrases / Math.max(phrases1.length, phrases2.length);
+    // Visual and audio feedback
+    provideFeedback(questionIndex, `Option ${processedAnswer} recorded for question ${questionIndex + 1}`);
   };
 
-  // Improved keyword extraction with stemming
-  const extractKeywords = (text) => {
-    const stopWords = new Set(['the', 'and', 'this', 'that', 'these', 'those', 'they']);
-    
-    const stem = (word) => {
-      if (word.length > 6 && word.endsWith('ing')) return word.slice(0, -3);
-      if (word.length > 5 && word.endsWith('es')) return word.slice(0, -2);
-      if (word.length > 4 && word.endsWith('s')) return word.slice(0, -1);
-      return word;
-    };
-    
-    return text.toLowerCase()
-      .replace(/[^\w\s.,;!?-]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .split(/\s+/)
-      .filter(word => word.length >= 3 && !stopWords.has(word))
-      .map(stem)
-      .filter((word, index, arr) => arr.indexOf(word) === index);
+  const handleSubjectiveAnswer = (questionIndex, answer) => {
+    setAnswers(prev => ({
+      ...prev,
+      [questionIndex]: answer
+    }));
+
+    // Visual and audio feedback
+    provideFeedback(questionIndex, `Answer recorded for question ${questionIndex + 1}`);
+  };
+
+  const provideFeedback = (questionIndex, message) => {
+    // Scroll to and highlight the answered question
+    setTimeout(() => {
+      const input = answerInputRefs.current[questionIndex];
+      if (input) {
+        input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        input.focus();
+        input.classList.add('ring-2', 'ring-blue-500');
+        setTimeout(() => input.classList.remove('ring-2', 'ring-blue-500'), 2000);
+      }
+    }, 300);
+
+    // Clear any validation errors
+    if (validationErrors[questionIndex]) {
+      setValidationErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[questionIndex];
+        return newErrors;
+      });
+    }
+
+    // Provide audio feedback
+    const synth = window.speechSynthesis;
+    synth.cancel();
+    const utterance = new SpeechSynthesisUtterance(message);
+    utterance.rate = 0.9;
+    synth.speak(utterance);
   };
 
   const getQuestionsForDisplay = () => {
@@ -66,14 +107,11 @@ export default function Evaluator({ generatedQuestions, onEvaluationAdded, pdfFi
       if (questionSections[i] && questionSections[i+1]) {
         let questionText = questionSections[i] + questionSections[i+1];
         
-        // For MCQs, remove the (Correct) markers
         if (questionText.includes('(Correct)')) {
           questionText = questionText
             .replace(/\(Correct\)/g, '')
             .replace(/Type your answer here.*?\n/g, '');
-        }
-        // For subjective questions, remove the model answer completely
-        else if (questionText.includes('Model Answer:')) {
+        } else if (questionText.includes('Model Answer:')) {
           questionText = questionText.split('Model Answer:')[0].trim();
         }
         
@@ -104,30 +142,74 @@ export default function Evaluator({ generatedQuestions, onEvaluationAdded, pdfFi
   const originalQuestions = getOriginalQuestionsWithAnswers();
 
   const readAloud = (text, index) => {
-    if (isReading) {
-      window.speechSynthesis.cancel();
-      if (currentReadIndex === index) {
+    // Get the speech synthesis API
+    const synth = window.speechSynthesis;
+    
+    // If already reading this question, stop and return
+    if (isReading && currentReadIndex === index) {
+        synth.cancel();
         setIsReading(false);
         setCurrentReadIndex(null);
         return;
-      }
     }
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.9;
-    utterance.pitch = 10;
-    utterance.onend = () => {
-      setIsReading(false);
-      setCurrentReadIndex(null);
+    // Cancel any ongoing speech
+    synth.cancel();
+
+    // Create new utterance with improved configuration
+    const utterance = new SpeechSynthesisUtterance();
+    utterance.text = text;
+    utterance.rate = 0.9;  // Slightly slower than default for clarity
+    utterance.pitch = 1;   // Normal pitch
+    utterance.volume = 1;  // Full volume
+
+    // Store in ref for potential cancellation
+    speechRef.current = utterance;
+
+    // Event handlers
+    utterance.onstart = () => {
+        setIsReading(true);
+        setCurrentReadIndex(index);
+        console.log(`Started reading question ${index + 1}`);
     };
 
-    window.speechSynthesis.speak(utterance);
-    setIsReading(true);
-    setCurrentReadIndex(index);
-  };
+    utterance.onend = () => {
+        if (speechRef.current === utterance) {
+            speechRef.current = null;
+        }
+        setIsReading(false);
+        setCurrentReadIndex(null);
+        console.log(`Finished reading question ${index + 1}`);
+    };
+
+    utterance.onerror = (event) => {
+        console.error('Speech synthesis error:', event);
+        if (speechRef.current === utterance) {
+            speechRef.current = null;
+        }
+        setIsReading(false);
+        setCurrentReadIndex(null);
+    };
+
+    utterance.onboundary = (event) => {
+        // Optional: Could add word highlighting here if needed
+    };
+
+    // Speak with error handling
+    try {
+        synth.speak(utterance);
+        console.log(`Attempting to read question ${index + 1}`);
+    } catch (error) {
+        console.error('Failed to speak:', error);
+        setIsReading(false);
+        setCurrentReadIndex(null);
+        speechRef.current = null;
+    }
+};
 
   const stopReading = () => {
     window.speechSynthesis.cancel();
+    speechRef.current = null;
     setIsReading(false);
     setCurrentReadIndex(null);
   };
@@ -137,6 +219,7 @@ export default function Evaluator({ generatedQuestions, onEvaluationAdded, pdfFi
       ...prev,
       [questionIndex]: answer
     }));
+    
     if (validationErrors[questionIndex]) {
       setValidationErrors(prev => {
         const newErrors = { ...prev };
@@ -192,8 +275,8 @@ export default function Evaluator({ generatedQuestions, onEvaluationAdded, pdfFi
       const studentText = normalize(studentAnswer);
       const modelText = normalize(modelAnswer);
 
-      const studentKeywords = extractKeywords(studentText);
-      const modelKeywords = extractKeywords(modelText);
+      const studentKeywords = studentText.split(/\s+/).filter(word => word.length >= 3);
+      const modelKeywords = modelText.split(/\s+/).filter(word => word.length >= 3);
 
       if (modelKeywords.length === 0) return 0;
 
@@ -203,11 +286,7 @@ export default function Evaluator({ generatedQuestions, onEvaluationAdded, pdfFi
       ).length;
 
       let score = (matchedKeywords / modelKeywords.length) * 60;
-      const semanticScore = calculateSemanticSimilarity(studentText, modelText);
-      score += semanticScore * 30;
-      
-      const lengthRatio = Math.min(2, studentText.length / modelText.length);
-      score += Math.min(10, lengthRatio * 10);
+      score += Math.min(40, (studentText.length / modelText.length) * 40);
 
       return Math.round(Math.min(100, Math.max(0, score)));
     }
@@ -231,18 +310,7 @@ export default function Evaluator({ generatedQuestions, onEvaluationAdded, pdfFi
       if (score >= 70) return 'Good answer, but could include more details. 👍';
       if (score >= 50) return 'Partial answer - you missed some important concepts. ➖';
       
-      const missingKeywords = modelAnswer ? 
-        extractKeywords(modelAnswer.toLowerCase())
-          .filter(kw => !extractKeywords(studentAnswer.toLowerCase())
-            .some(skw => skw.includes(kw) || kw.includes(skw)))
-          .slice(0, 3) : [];
-      
-      let feedback = 'Needs improvement - review the material.';
-      if (missingKeywords.length > 0) {
-        feedback += ` Missing concepts: ${missingKeywords.join(', ')}`;
-      }
-      
-      return feedback;
+      return 'Needs improvement - review the material.';
     }
   };
 
@@ -253,16 +321,23 @@ export default function Evaluator({ generatedQuestions, onEvaluationAdded, pdfFi
     }
 
     setIsEvaluating(true);
+    
+    // Speak evaluation started message
+    const synth = window.speechSynthesis;
+    synth.cancel();
+    const startUtterance = new SpeechSynthesisUtterance('Evaluating answers, please wait');
+    startUtterance.rate = 0.9;
+    synth.speak(startUtterance);
+
     try {
       const results = [];
-      const originalQuestions = getOriginalQuestionsWithAnswers();
       
       for (let i = 0; i < originalQuestions.length; i++) {
         const question = originalQuestions[i];
         const studentAnswer = answers[i] || '';
         const isMCQ = question.includes('A)') && question.includes('B)');
-        
         let modelAnswer = '';
+        
         if (isMCQ) {
           const correctOptions = question.match(/[A-Z]\) .*?\(Correct\)/g) || [];
           modelAnswer = correctOptions.map(opt => opt.replace('(Correct)', '').trim()).join(' OR ');
@@ -272,7 +347,6 @@ export default function Evaluator({ generatedQuestions, onEvaluationAdded, pdfFi
 
         const score = calculateScore(studentAnswer, modelAnswer, isMCQ, question);
         const feedback = getFeedback(score, isMCQ, question, studentAnswer, modelAnswer);
-        
         
         results.push({
           question: question.split('\n')[0],
@@ -289,10 +363,22 @@ export default function Evaluator({ generatedQuestions, onEvaluationAdded, pdfFi
       if (onEvaluationAdded) {
         onEvaluationAdded(results);
       }
+      
+      // Speak evaluation complete message
+      const completeUtterance = new SpeechSynthesisUtterance('Evaluation completed!');
+      completeUtterance.rate = 0.9;
+      synth.speak(completeUtterance);
+      
       toast.success('Evaluation completed!');
     } catch (err) {
-      toast.error('Failed to evaluate answers');
       console.error('Evaluation error:', err);
+      
+      // Speak error message
+      const errorUtterance = new SpeechSynthesisUtterance('Failed to evaluate answers');
+      errorUtterance.rate = 0.9;
+      synth.speak(errorUtterance);
+      
+      toast.error('Failed to evaluate answers');
     } finally {
       setIsEvaluating(false);
     }
@@ -325,15 +411,18 @@ export default function Evaluator({ generatedQuestions, onEvaluationAdded, pdfFi
                         ? 'bg-blue-100 text-blue-600' 
                         : 'bg-gray-100 text-gray-600'
                     }`}
-                    aria-label="Read question aloud"
+                    aria-label={isReading && currentReadIndex === index ? "Stop reading" : "Read question aloud"}
                   >
                     {isReading && currentReadIndex === index ? <FaStop /> : <FaVolumeUp />}
                   </button>
                 </div>
                 <textarea
-                  className={`w-full p-3 border rounded ${
+                  id={`question-${index}`}
+                  ref={el => answerInputRefs.current[index] = el}
+                  className={`w-full p-3 border rounded answer-input transition-colors ${
                     validationErrors[index] ? 'border-red-500' : ''
                   }`}
+                  data-index={index}
                   rows={question.includes('A)') ? 1 : 4}
                   placeholder={
                     question.includes('A)') 
@@ -342,6 +431,7 @@ export default function Evaluator({ generatedQuestions, onEvaluationAdded, pdfFi
                   }
                   value={answers[index] || ''}
                   onChange={(e) => handleAnswerChange(index, e.target.value)}
+                  aria-label={`Answer for question ${index + 1}`}
                 />
                 {validationErrors[index] && (
                   <p className="text-red-500 text-sm mt-1 flex items-center">
@@ -359,14 +449,16 @@ export default function Evaluator({ generatedQuestions, onEvaluationAdded, pdfFi
             onClick={stopReading}
             className="flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
             disabled={!isReading}
+            aria-label="Stop reading"
           >
             <FaStop className="mr-2" />
             Stop Reading
           </button>
           <button
             onClick={evaluateAnswers}
-            className="btn-primary flex items-center px-6 py-2"
+            className="btn-primary flex items-center px-6 py-2 evaluate-btn"
             disabled={isEvaluating || questionList.length === 0}
+            aria-label={isEvaluating ? "Evaluating answers" : "Evaluate answers"}
           >
             {isEvaluating ? (
               <>
@@ -427,4 +519,7 @@ export default function Evaluator({ generatedQuestions, onEvaluationAdded, pdfFi
       )}
     </div>
   );
-}
+});
+
+Evaluator.displayName = 'Evaluator';
+export default Evaluator;

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { FaFilePdf, FaSearch, FaChartBar, FaCheckCircle } from 'react-icons/fa';
 import LoadingOverlay from '../components/Common/LoadingOverlay';
 import useDashboardLoader from '../hooks/useDashboardLoader';
@@ -7,8 +7,12 @@ import WebSearch from '../components/Dashboard/WebSearch';
 import Analytics from '../components/Dashboard/Analytics';
 import Evaluator from '../components/Dashboard/Evaluator';
 import Sidebar from '../components/Dashboard/Sidebar';
+import VoiceControl from '../components/Dashboard/VoiceControl';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
+import ChatList from '../components/Dashboard/ChatList';
+import ChatPage from '../components/Dashboard/ChatPage';
+
 
 export default function Dashboard() {
   const isLoading = useDashboardLoader();
@@ -20,6 +24,8 @@ export default function Dashboard() {
   const [pdfFile, setPdfFile] = useState(null);
   const [regenerationCount, setRegenerationCount] = useState(0);
   const navigate = useNavigate();
+  const pdfUploaderRef = useRef(null);
+  const evaluatorRef = useRef(null);
 
   // Authentication check
   useEffect(() => {
@@ -91,6 +97,49 @@ export default function Dashboard() {
     });
   }, []);
 
+  const handleVoiceCommand = useCallback((command) => {
+    switch (command.type) {
+      case 'NAVIGATE':
+        setActiveTab(command.tab);
+        break;
+      case 'GENERATE':
+        if (activeTab === 'upload' && pdfUploaderRef.current) {
+          pdfUploaderRef.current.handleVoiceGenerate(
+            command.numQuestions,
+            command.questionType,
+            command.pageRange
+          );
+        }
+        break;
+        case 'REGENERATE':
+          if (activeTab === 'upload' && pdfUploaderRef.current) {
+            pdfUploaderRef.current.handleVoiceRegenerate();
+          }
+          break;
+        case 'READ_ALOUD':
+          if (activeTab === 'upload' && pdfUploaderRef.current) {
+            pdfUploaderRef.current.handleVoiceReadAloud();
+          }
+          break;
+        case 'EVALUATE':
+          if (activeTab === 'evaluator') {
+            const evaluateBtn = document.querySelector('.evaluate-btn');
+            if (evaluateBtn) evaluateBtn.click();
+          }
+          break;
+        case 'ANSWER':
+          if (activeTab === 'evaluator' && evaluatorRef.current) {
+            evaluatorRef.current.handleVoiceAnswer(command);
+          }
+          break;
+        case 'STOP':
+          window.speechSynthesis.cancel();
+          break;
+        default:
+          break;
+    }
+  }, [activeTab]);
+
   if (isLoading) {
     return <LoadingOverlay />;
   }
@@ -107,18 +156,22 @@ export default function Dashboard() {
               {activeTab === 'search' && 'Web Search'}
               {activeTab === 'analytics' && 'Learning Analytics'}
               {activeTab === 'evaluator' && 'Answer Evaluator'}
+              {activeTab === 'chat' && 'Chat/Forum'}
+
             </h1>
             <p className="text-gray-600 mt-2">
               {activeTab === 'upload' && 'Upload textbooks to generate practice questions'}
               {activeTab === 'search' && 'Get answers from across the web'}
               {activeTab === 'analytics' && 'Track your learning progress'}
               {activeTab === 'evaluator' && 'Evaluate your answers against model answers'}
+              {activeTab === 'chat' && 'Interact with teachers and students'}
             </p>
           </header>
 
           <div className="bg-white rounded-xl shadow-md p-6">
             {activeTab === 'upload' && (
               <PDFUploader 
+                ref={pdfUploaderRef}
                 onPdfProcessed={handlePdfAdded}
                 onQuestionsGenerated={handleQuestionsGenerated}
                 pdfs={pdfs}
@@ -141,11 +194,14 @@ export default function Dashboard() {
 
             {activeTab === 'evaluator' && (
               <Evaluator 
+                ref={evaluatorRef}
                 generatedQuestions={generatedQuestions}
                 onEvaluationAdded={handleEvaluationAdded}
                 pdfFile={pdfFile}
               />
             )}
+            {activeTab === 'chat' && <ChatList />}
+
           </div>
 
           <div className="mt-6 flex justify-end space-x-4">
@@ -166,6 +222,12 @@ export default function Dashboard() {
             </button>
           </div>
         </div>
+
+        <VoiceControl 
+          onCommand={handleVoiceCommand}
+          activeTab={activeTab}
+          isEvaluatorActive={activeTab === 'evaluator'}
+        />
       </main>
     </div>
   );

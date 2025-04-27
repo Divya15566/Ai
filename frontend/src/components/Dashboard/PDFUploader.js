@@ -1,15 +1,15 @@
-import { useState } from 'react';
+import { forwardRef, useState, useImperativeHandle, useRef } from 'react';
 import axios from 'axios';
 import { FaFilePdf, FaPlay, FaDownload, FaSpinner, FaMagic, FaRedo } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 import { jsPDF } from 'jspdf';
 
-export default function PDFUploader({ 
+const PDFUploader = forwardRef(({ 
   onQuestionsGenerated, 
   initialQuestions, 
   initialPdfFile,
   regenerationCount
-}) {
+}, ref) => {
   const [questions, setQuestions] = useState(initialQuestions || '');
   const [isLoading, setIsLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -20,12 +20,34 @@ export default function PDFUploader({
     question_type: "MCQ",
     page_range: "all"
   });
+  const speechRef = useRef(null);
+
+  // Expose functions to parent via ref
+  useImperativeHandle(ref, () => ({
+    handleVoiceGenerate: (numQuestions, questionType, pageRange) => {
+      setFormData((prevFormData) => {
+        const updatedFormData = {
+          ...prevFormData,
+          num_questions: numQuestions || 5,
+          question_type: questionType || "MCQ",
+          page_range: pageRange || "all"
+        };
+        generateQuestions(updatedFormData); // Trigger generation immediately with updated form data
+        return updatedFormData;
+      });
+    },
+    handleVoiceRegenerate: () => {
+      regenerateQuestions();
+    },
+    handleVoiceReadAloud: () => {
+      readAloud();
+    }
+  }));
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Validate file type
     if (file.type !== 'application/pdf') {
       toast.error('Please upload a PDF file');
       return;
@@ -35,7 +57,7 @@ export default function PDFUploader({
     toast.success('PDF uploaded successfully! Click "Generate Questions" to proceed.');
   };
 
-  const generateQuestions = async () => {
+  const generateQuestions = async (customFormData = formData) => {
     if (!pdfFile) {
       toast.error('Please upload a PDF first');
       return;
@@ -48,8 +70,7 @@ export default function PDFUploader({
       const form = new FormData();
       form.append('pdf', pdfFile);
       
-      // Append other form data
-      Object.entries(formData).forEach(([key, value]) => {
+      Object.entries(customFormData).forEach(([key, value]) => {
         form.append(key, value);
       });
 
@@ -84,7 +105,18 @@ export default function PDFUploader({
       toast.error('No questions to read');
       return;
     }
+    
+    if (speechRef.current) {
+      window.speechSynthesis.cancel();
+    }
+    
     const speech = new SpeechSynthesisUtterance(questions);
+    speechRef.current = speech;
+    
+    speech.onend = () => {
+      speechRef.current = null;
+    };
+    
     window.speechSynthesis.speak(speech);
   };
 
@@ -96,50 +128,43 @@ export default function PDFUploader({
   
     const doc = new jsPDF();
     
-    // Set document properties
     doc.setProperties({
       title: 'Generated Questions',
       subject: 'Practice Questions',
       author: 'AI Learning Assistant'
     });
   
-    // Add title
     doc.setFontSize(18);
     doc.text('Generated Questions with Answers', 105, 15, { align: 'center' });
   
-    // Add metadata
     doc.setFontSize(12);
     doc.text(`Generated from: ${pdfFile.name}`, 14, 25);
     doc.text(`Type: ${formData.question_type}`, 14, 32);
     doc.text(`Date: ${new Date().toLocaleDateString()}`, 14, 39);
     doc.text(`Total Questions: ${questions.split('\n\n').filter(q => q.startsWith('Q')).length}`, 14, 46);
   
-    // Process questions for PDF
     doc.setFontSize(14);
     let yPosition = 60;
     const pageHeight = doc.internal.pageSize.height - 20;
     const splitQuestions = questions.split('\n\n');
   
-    splitQuestions.forEach((questionBlock, index) => {
+    splitQuestions.forEach((questionBlock) => {
       if (!questionBlock.trim()) return;
-  
-      // Check if we need a new page
+
       if (yPosition > pageHeight) {
         doc.addPage();
         yPosition = 20;
       }
-  
-      // Split question into lines and process each line
+
       const questionLines = questionBlock.split('\n');
       questionLines.forEach(line => {
         if (line.trim()) {
-          // Handle correct answers formatting
           if (line.includes('(Correct)')) {
-            doc.setTextColor(0, 128, 0); // Green for correct answers
+            doc.setTextColor(0, 128, 0);
           } else {
-            doc.setTextColor(0, 0, 0); // Black for regular text
+            doc.setTextColor(0, 0, 0);
           }
-  
+
           const textLines = doc.splitTextToSize(line, 180);
           textLines.forEach(textLine => {
             if (yPosition > pageHeight) {
@@ -151,18 +176,14 @@ export default function PDFUploader({
           });
         }
       });
-  
-      // Add space between questions
       yPosition += 10;
     });
   
-    // Save the PDF
     doc.save(`questions-${new Date().toISOString().slice(0,10)}.pdf`);
   };
 
   return (
     <div className="space-y-6" key={regenerationCount}>
-      {/* PDF Upload Section */}
       <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
         <input 
           type="file" 
@@ -193,7 +214,6 @@ export default function PDFUploader({
         </label>
       </div>
 
-      {/* Controls */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
           <label className="block mb-1 font-medium">Question Type</label>
@@ -232,13 +252,11 @@ export default function PDFUploader({
         </div>
       </div>
 
-      {/* Action Buttons */}
       <div className="flex justify-center gap-4">
-        {/* Generate Button - Only shown after PDF upload */}
         {pdfFile && !questions && (
           <button
             onClick={generateQuestions}
-            className="btn-primary flex items-center px-6 py-3"
+            className="btn-primary flex items-center px-6 py-3 generate-btn"
             disabled={isGenerating}
           >
             {isGenerating ? (
@@ -255,7 +273,6 @@ export default function PDFUploader({
           </button>
         )}
 
-        {/* Regenerate Button - Only shown when questions exist */}
         {questions && (
           <button
             onClick={regenerateQuestions}
@@ -277,7 +294,6 @@ export default function PDFUploader({
         )}
       </div>
 
-      {/* Loading State */}
       {(isLoading || isGenerating) && (
         <div className="flex justify-center items-center p-4">
           <FaSpinner className="animate-spin text-blue-500 text-2xl mr-2" />
@@ -285,14 +301,12 @@ export default function PDFUploader({
         </div>
       )}
 
-      {/* Error Message */}
       {error && (
         <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4">
           <p>{error}</p>
         </div>
       )}
 
-      {/* Results */}
       {questions && !isGenerating && (
         <div className="mt-6 bg-white p-6 rounded-lg shadow">
           <div className="flex justify-end space-x-4 mb-4">
@@ -316,4 +330,6 @@ export default function PDFUploader({
       )}
     </div>
   );
-}
+});
+
+export default PDFUploader;

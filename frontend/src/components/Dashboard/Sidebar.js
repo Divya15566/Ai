@@ -1,4 +1,4 @@
-import { FaUpload, FaSearch, FaChartLine, FaCheckCircle } from 'react-icons/fa';
+import { FaUpload, FaSearch, FaChartLine, FaCheckCircle, FaComments } from 'react-icons/fa';
 
 export default function Sidebar({ activeTab, setActiveTab }) {
   return (
@@ -40,6 +40,15 @@ export default function Sidebar({ activeTab, setActiveTab }) {
             >
               <FaChartLine className="mr-3" />
               Analytics
+            </button>
+          </li>
+          <li>
+            <button
+              onClick={() => setActiveTab('chat')}
+              className={`flex items-center w-full p-3 rounded-lg ${activeTab === 'chat' ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
+            >
+              <FaComments className="mr-3" />
+              Chat/Forum
             </button>
           </li>
         </ul>

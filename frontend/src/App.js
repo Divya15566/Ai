@@ -9,6 +9,9 @@ import ProtectedRoute from './components/ProtectedRoute';
 import LoadingScreen from './components/LoadingScreen';
 import Navbar from './components/navbar';
 import HomePage from './pages/HomePage';
+import ChatList from './components/Dashboard/ChatList';
+import ChatPage from './components/Dashboard/ChatPage';
+
 
 function App() {
   const [user, setUser] = useState(null);
@@ -42,6 +45,8 @@ function App() {
         <Route element={<ProtectedRoute user={user} />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/profile" element={<div>Profile Page</div>} />
+          <Route path="/chat" element={<ChatList />} />
+          <Route path="/chat/:chatId" element={<ChatPage />} />
         </Route>
 
         {/* 404 page */}
